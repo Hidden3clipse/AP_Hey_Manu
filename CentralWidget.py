@@ -1,71 +1,56 @@
-from PyQt6.QtCore import pyqtSlot, QDateTime, pyqtSignal
-from PyQt6.QtGui import QFont
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QTextBrowser
+from PyQt6.QtCore import pyqtSlot, QDateTime, pyqtSignal  # Import von PyQt6-Signalen und Datumszeit-Funktionalität
+from PyQt6.QtGui import QFont                            # Import für Schriftarten und -gewicht
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QTextBrowser  # Import grundlegender Qt-Widgets
 
-from ChartView import ChartView
+from ChartView import ChartView  # Import einer benutzerdefinierten Diagramm-Komponente
 
+class CentralWidget(QWidget):  # Definition einer eigenen Widget-Klasse, die QWidget erweitert
+    send_cpu_temperature = pyqtSignal(QDateTime, float)  # Signal zur Übertragung von CPU-Temperaturdaten an das Diagramm
+    send_gpu_temperature = pyqtSignal(QDateTime, float)  # Signal zur Übertragung von GPU-Temperaturdaten an das Diagramm
 
-class CentralWidget(QWidget):
-    # Signale zum Übertragen von Temperaturdaten an das Diagramm
-    send_cpu_temperature = pyqtSignal(QDateTime, float)
-    send_gpu_temperature = pyqtSignal(QDateTime, float)
+    def __init__(self, parent=None):  # Konstruktor der Klasse
+        super(CentralWidget, self).__init__(parent)  # Aufruf des Konstruktors der Elternklasse
 
-    def __init__(self, parent=None):
-        super(CentralWidget, self).__init__(parent)
+        chart_view = ChartView(parent)  # Erzeuge ein Objekt vom Typ ChartView (das Diagramm)
 
-        # Erstelle das Diagramm (ChartView)
-        chart_view = ChartView(parent)
+        self.send_cpu_temperature.connect(chart_view.append_to_cpu)  # Verbinde Signal für CPU mit entsprechender Methode im Chart
+        self.send_gpu_temperature.connect(chart_view.append_to_gpu)  # Verbinde Signal für GPU mit entsprechender Methode im Chart
 
-        # Verbinde die Signale mit den Slots im ChartView
-        self.send_cpu_temperature.connect(chart_view.append_to_cpu)
-        self.send_gpu_temperature.connect(chart_view.append_to_gpu)
+        self.__text_browser = QTextBrowser()  # Erzeuge ein Textfeld zur Anzeige der Messzeilen
 
-        # Textbereich für Temperaturzeilen
-        self.__text_browser = QTextBrowser()
+        layout = QVBoxLayout()  # Vertikales Layout (alles untereinander)
+        layout.addWidget(chart_view)           # Füge das Diagramm dem Layout hinzu (oben)
+        layout.addWidget(self.__text_browser)  # Füge das Textfeld hinzu (unten)
 
-        # Layout definieren
-        layout = QVBoxLayout()
-        layout.addWidget(chart_view)           # Diagramm oben
-        layout.addWidget(self.__text_browser)  # Textbrowser unten
+        self.setLayout(layout)  # Setze das Layout für das CentralWidget
 
-        self.setLayout(layout)
+    @pyqtSlot(str)  # Dekorator: Methode ist ein Slot, reagiert auf ein Signal mit einem String als Eingabe
+    def add_line(self, line):  # Methode zum Einfügen einer Zeile in Textfeld + Diagramm
+        tokens = line.split(" ")  # Zerlege die Zeile in Einzelteile (Datum, Typ, Temperatur)
 
-    # Slot zum Hinzufügen einer Zeile in das Textfeld und Diagramm
-    @pyqtSlot(str)
-    def add_line(self, line):
-        # Zeile zerlegen (Format z. B.: "2025-01-20_08:13:45 CPU 84.0")
-        tokens = line.split(" ")
+        datetime = QDateTime.fromString(tokens[0], "yyyy-MM-dd_hh:mm:ss")  # Erstelle QDateTime aus dem ersten Teil
 
-        # Datum extrahieren
-        datetime = QDateTime.fromString(tokens[0], "yyyy-MM-dd_hh:mm:ss")
+        temperature = float(tokens[2])  # Wandle Temperatur von Text in Zahl um
 
-        # Temperatur extrahieren und in float umwandeln
-        temperature = float(tokens[2])
+        if temperature > 88.0:  # Wenn Temperatur kritisch hoch ist (z. B. Überhitzung)
+            cursor = self.__text_browser.textCursor()  # Hole aktuellen Cursor im Textfeld
+            format = cursor.charFormat()               # Hole aktuelles Textformat
+            format.setFontWeight(QFont.Weight.Bold)    # Setze Schrift auf fett
+            cursor.setCharFormat(format)               # Wende Format auf Cursor an
+            self.__text_browser.setTextCursor(cursor)  # Setze Cursor zurück (mit neuem Format)
 
-        # Wenn Temperatur > 88, Text fett darstellen
-        if temperature > 88.0:
-            cursor = self.__text_browser.textCursor()
-            format = cursor.charFormat()
-            format.setFontWeight(QFont.Weight.Bold)
-            cursor.setCharFormat(format)
-            self.__text_browser.setTextCursor(cursor)
+        self.__text_browser.append(line)  # Zeile ins Textfeld schreiben
 
-        # Zeile in Textfeld einfügen
-        self.__text_browser.append(line)
-
-        # An Diagramm übergeben je nach CPU oder GPU
-        if tokens[1] == "CPU":
-            self.send_cpu_temperature.emit(datetime, temperature)
-        elif tokens[1] == "GPU":
-            self.send_gpu_temperature.emit(datetime, temperature)
+        if tokens[1] == "CPU":  # Wenn Messung von der CPU stammt
+            self.send_cpu_temperature.emit(datetime, temperature)  # Signal mit Daten senden
+        elif tokens[1] == "GPU":  # Wenn Messung von der GPU stammt
+            self.send_gpu_temperature.emit(datetime, temperature)  # Signal mit Daten senden
         else:
-            # Optional: unbekannter Typ wird in der Konsole ausgegeben
-            print("Token", tokens[1], "unbekannt.")
+            print("Token", tokens[1], "unbekannt.")  # Falls Typ nicht erkannt wird, in Konsole ausgeben
 
-        # Schrift wieder auf normal setzen (damit nur betroffene Zeile fett ist)
-        if temperature > 88.0:
-            cursor = self.__text_browser.textCursor()
-            format = cursor.charFormat()
-            format.setFontWeight(QFont.Weight.Normal)
-            cursor.setCharFormat(format)
-            self.__text_browser.setTextCursor(cursor)
+        if temperature > 88.0:  # Nach dem Einfügen Format wieder auf normal setzen
+            cursor = self.__text_browser.textCursor()  # Aktuellen Cursor holen
+            format = cursor.charFormat()               # Format holen
+            format.setFontWeight(QFont.Weight.Normal)  # Fett wieder entfernen
+            cursor.setCharFormat(format)               # Format anwenden
+            self.__text_browser.setTextCursor(cursor)  # Cursor zurücksetzen
